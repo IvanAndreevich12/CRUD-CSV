@@ -5,6 +5,8 @@
 #include <sstream>
 #include <vector>
 #include <Windows.h>
+#include <regex> //  библиотека для регулярных выражений
+
 using namespace std;
 
 // выполнение CRUD операций
@@ -15,18 +17,20 @@ public:
 
     // создаем табилцу стуенды
     void createTable() {
+        //тут я меняю тип данных  на TEXT чтобы дату хранить
         string sql = "CREATE TABLE IF NOT EXISTS students("
             "id INTEGER PRIMARY KEY AUTOINCREMENT, "
             "name TEXT NOT NULL, "
-            "age INTEGER NOT NULL);";
+            "birthdate TEXT NOT NULL);";
 
         db.execute(sql);
     }
 
     // добавление новых данных в таблицу, автоинкрементация идёт дальше
-    void insertData(const string& name, int age) {
-        string sql = "INSERT INTO students (name, age) VALUES ('" + name + "', " + to_string(age) + ");";
-       
+    //теперь принимаем дату как строку
+    void insertData(const string& name, const string& birthdate) {
+        string sql = "INSERT INTO students (name, birthdate) VALUES ('" + name + "', '" + birthdate + "');";
+
         db.execute(sql);
     }
 
@@ -38,20 +42,22 @@ public:
 
         sqlite3_prepare_v2(db.getDb(), sql.c_str(), -1, &stmt, nullptr);
 
+
         while (sqlite3_step(stmt) == SQLITE_ROW) {
             cout << "ID: " << sqlite3_column_int(stmt, 0)
-                << " Name: " << sqlite3_column_text(stmt, 1)
-                << " Age: " << sqlite3_column_int(stmt, 2) <<endl;
+                << " Имя: " << sqlite3_column_text(stmt, 1)
+                << " Дата рождения: " << sqlite3_column_text(stmt, 2) << endl; //и тут выводим дату рождения
         }
 
         sqlite3_finalize(stmt);
     }
 
     // обновляем уже существующие строки по ID
-    void updateData(int id, const string& name, int age) {
-        string sql = "UPDATE students SET name = '" + name + "', age = " + to_string(age) +
-            " WHERE id = " + to_string(id) + ";";
-        
+    //и тут меняем на строку для даты
+    void updateData(int id, const string& name, const string& birthdate) {
+        string sql = "UPDATE students SET name = '" + name + "', birthdate = '" + birthdate +
+            "' WHERE id = " + to_string(id) + ";";
+
         db.execute(sql);
     }
 
@@ -86,7 +92,7 @@ private:
 class CsvImporter {
 public:
     CsvImporter(Database& database) : db(database) {}
-    
+
 
     //читаем файл CSV который находится у нас в папке с остальными всеми файлами
     void importCsv(const string& filename) {
@@ -97,7 +103,7 @@ public:
             cout << "Ошибка открытия файла" << endl;
             return;
         }
-        
+
 
         //еашли его
         string line;
@@ -106,13 +112,13 @@ public:
             //созданный файл имеет структуру хранения данных (имя студента, 20 (возраст студента)) делим через запятую данные
             vector<string> values = split(line, ',');
 
-            //если в строке больше 2 данных то добавляем, значит у нас будут данные чтобы добавить всю строку
+            //если в строке 2 данных то добавляем, значит у нас будут данные чтобы добавить всю строку
             if (values.size() == 2) {
 
                 string name = values[0];
-                int age = stoi(values[1]);
+                string birthdate = values[1]; //теперь у нас не возраст, а дата рождения!!
 
-                string sql = "INSERT INTO students (name, age) VALUES ('" + name + "', " + to_string(age) + ");";
+                string sql = "INSERT INTO students (name, birthdate) VALUES ('" + name + "', '" + birthdate + "');";
 
                 db.execute(sql);
             }
@@ -125,6 +131,7 @@ private:
     Database& db;
 
     vector<string> split(const string& s, char delimiter) {
+
         vector<string> tokens;
         string token;
         istringstream tokenStream(s);
@@ -135,6 +142,44 @@ private:
         return tokens;
     }
 };
+
+
+// проверка формата и минимальной реальности даты
+bool isValidDate(const string& date) {
+    //  регулярное выражение для проверки формата YYYY-MM-DD
+    regex pattern("^(\\d{4})-(\\d{2})-(\\d{2})$");
+    // открываем строку ^
+    // (первый ящик и 4 символа)-(2 символа)-(2символа)   (дефис это дефис)
+    // $ - закрываем
+
+
+    if (!regex_match(date, pattern)) {
+        return false; // Неверный формат
+    }
+
+    // год, месяц и день
+    int year, month, day;
+    sscanf_s(date.c_str(), "%d-%d-%d", &year, &month, &day);
+
+    // проверка минимального года
+    if (year < 1900) {
+        return false; // слишком ранний год
+    }
+
+    // сверка количества месяцев
+    if (month < 1 || month > 12) {
+        return false; // некорректен
+    }
+
+    // смотрим количества дней
+    if (day < 1 || day > 31) {
+        return false; // некорректен
+    }
+
+    return true; // валид
+}
+
+
 
 int main() {
 
@@ -153,12 +198,30 @@ int main() {
         cout << "Введите команду (/add, /read, /update, /delete, /import, /clear, /drop, /exit): ";
         cin >> command;
 
-        if (command == "/add") {
-            crud.insertData("Charlize Theron", 20);
-            crud.insertData("Melanie Laurent", 22);
 
-            cout << "Тестовые данные добавлены.\n";
+
+        if (command == "/add") {
+            string name, birthdate;
+            cout << "Введите имя студента: ";
+            cin.ignore();
+            getline(cin, name);
+
+            // Цикл ввода даты с постоянной проверкой
+            while (true) {
+                cout << "Введите дату рождения (YYYY-MM-DD): ";
+                cin >> birthdate;
+
+                if (isValidDate(birthdate)) {
+                    crud.insertData(name, birthdate);
+                    cout << "Данные добавлены.\n";
+                    break;
+                }
+                else {
+                    cout << "Неверный формат даты. Пожалуйста, введите дату в формате YYYY-MM-DD.\n";
+                }
+            }
         }
+
 
         else if (command == "/read") {
             cout << "Чтение данных:\n";
@@ -166,18 +229,44 @@ int main() {
             crud.readData();
         }
 
-        else if (command == "/update") {
-            crud.updateData(1, "Jackie Chan", 21);
-            crud.updateData(2, "Penelope Cruz", 23);
 
-            cout << "Данные обновлены.\n";
+        else if (command == "/update") {
+            int id;
+            string name, birthdate; //birthdate строка
+            cout << "Введите ID студента для обновления: ";
+            cin >> id;
+            cout << "Введите новое имя: ";
+            cin.ignore(); //ЧИстим буфер перед getline
+            getline(cin, name);
+
+            // кикл ввода даты с проверкой
+            while (true) {
+                cout << "Введите дату рождения (YYYY-MM-DD): ";
+                cin >> birthdate;
+
+                if (isValidDate(birthdate)) {
+                    crud.updateData(id, name, birthdate); //обновляем, передавая дату как строку
+                    // не делаем проверку каждый ра0 при вводе id, если нету такого id то просто ничего не обновиться
+
+                    cout << "Данные обновлены.\n";
+                    break;
+                }
+                else {
+                    cout << "Неверный формат даты. Пожалуйста, введите дату в формате YYYY-MM-DD.\n";
+                }
+            }
         }
 
+
         else if (command == "/delete") {
-            crud.deleteData(2);
+            int id;
+            cout << "Введите ID студента для удаления: ";
+            cin >> id;
+            crud.deleteData(id);
 
             cout << "Данные удалены.\n";
         }
+
 
         else if (command == "/import") {
             csvImporter.importCsv("students.csv");
@@ -202,15 +291,14 @@ int main() {
             break;
         }
 
+
         else {
             cout << "Неизвестная команда.\n";
         }
     }
 
-
     return 0;
 }
-
 
 
 // Запуск программы: CTRL+F5 или меню "Отладка" > "Запуск без отладки"
